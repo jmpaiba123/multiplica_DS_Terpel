@@ -1,0 +1,200 @@
+---
+title: "Reto Técnico DS"
+author: "Juan Manuel Paiba Amaya"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages(library(plyr))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(cowplot))
+suppressPackageStartupMessages(library(sf))
+library(ggplot2)
+library("readxl")
+suppressPackageStartupMessages(library('maps'))
+```
+
+## Lectura y limpieza de Datos
+
+Lectura de todos los archivos .csv de nuestro directorio, previamente se hacen algunos ajustes a los datos originales, como quitar las comillas en los datos de 2021, dejar en una sola colmna la informaicón de 2022, entre otros. Y teniendo en cuenta la información dispuesta en cada uno de los archivos:
+
+* fecha	(date):	Fecha
+* hora (integer):	Hora del día.
+* autopista_nombre (string):	Nombre de la autopista.
+* disp_nombre	(string):	Nombre del radar.
+* disp_ubicacion	(string):	Ubicación del radar.
+* seccion_sentido	(string):	Sentido de autopista.
+* lat	(number):	Latitud
+* long	(number):	Longitud
+* cantidad	(integer): Cantidad de vehículos que pasaron durante esa hora.
+
+
+```{r lectura datos, echo=FALSE}
+temp = list.files(pattern="*.csv")
+myfiles = lapply(temp, read.delim)
+
+temp = list.files(pattern="*.csv")
+for (i in 1:length(temp)) assign(temp[i], read.csv(temp[i]))
+```
+
+
+
+```{r}
+
+info_radares <- unique(rbind(as.matrix(flujo_vehicular_2019.csv %>% distinct(disp_nombre, lat, long)),
+                             as.matrix(flujo_vehicular_2020.csv %>% distinct(disp_nombre, lat, long)),
+                             as.matrix(flujo_vehicular_2022.csv %>% distinct(disp_nombre, lat, long))))
+
+
+info_radares <- na.omit(data.frame(info_radares))
+
+flujo_vehicular_2019 <- merge(x=flujo_vehicular_2019.csv,y=info_radares,by="disp_nombre")
+names(flujo_vehicular_2019)[names(flujo_vehicular_2019) == "lat.y"] <- "lat"
+names(flujo_vehicular_2019)[names(flujo_vehicular_2019) == "long.y"] <- "long"
+flujo_vehicular_2019 <- flujo_vehicular_2019 %>% distinct(fecha, hora, autopista_nombre,
+                                                          disp_nombre, disp_ubicacion,seccion_sentido,
+                                                          lat,long, cantidad)
+
+flujo_vehicular_2020 <- merge(x=flujo_vehicular_2020.csv,y=info_radares,by="disp_nombre")
+names(flujo_vehicular_2020)[names(flujo_vehicular_2020) == "lat.y"] <- "lat"
+names(flujo_vehicular_2020)[names(flujo_vehicular_2020) == "long.y"] <- "long"
+flujo_vehicular_2020 <- flujo_vehicular_2020 %>% distinct(fecha, hora, autopista_nombre,
+                                                          disp_nombre, disp_ubicacion,seccion_sentido,
+                                                          lat,long, cantidad)
+
+flujo_vehicular_2021 <- merge(x=flujo_vehicular_2021.csv,y=info_radares,by="disp_nombre")
+names(flujo_vehicular_2021)[names(flujo_vehicular_2021) == "lat.y"] <- "lat"
+names(flujo_vehicular_2021)[names(flujo_vehicular_2021) == "long.y"] <- "long"
+flujo_vehicular_2021 <- flujo_vehicular_2021 %>% distinct(fecha, hora, autopista_nombre,
+                                                          disp_nombre, disp_ubicacion,seccion_sentido,
+                                                          lat,long, cantidad)
+
+flujo_vehicular_2022 <- merge(x=flujo_vehicular_2022.csv,y=info_radares,by="disp_nombre")
+names(flujo_vehicular_2022)[names(flujo_vehicular_2022) == "lat.y"] <- "lat"
+names(flujo_vehicular_2022)[names(flujo_vehicular_2022) == "long.y"] <- "long"
+flujo_vehicular_2022 <- flujo_vehicular_2022 %>% distinct(fecha, hora, autopista_nombre,
+                                                          disp_nombre, disp_ubicacion,seccion_sentido,
+                                                          lat,long, cantidad)
+
+
+rm(flujo_vehicular_2019.csv,flujo_vehicular_2020.csv,flujo_vehicular_2021.csv,flujo_vehicular_2022.csv)
+
+```
+
+
+
+
+```{r}
+df <- unique(rbind(flujo_vehicular_2019,
+                   flujo_vehicular_2020,
+                   flujo_vehicular_2021,
+                   flujo_vehicular_2022))
+
+
+
+#write.table(df, file = "flujo_vehicular.txt", sep = "\t",
+#            row.names = TRUE, col.names = NA)
+
+df[, 'seccion_sentido'] <- as.factor(df[, 'seccion_sentido'])
+df[, 'lat'] <- as.double(df[, 'lat'])
+df[, 'long'] <- as.double(df[, 'long'])
+
+df[, 'fecha'] <- as.Date((df[, 'fecha']), "%Y-%m-%d") 
+
+str(df)
+```
+
+## Ejercicio 1.
+
+Genere una exploración de datos que permita la comprensión de los mismos (gráficos,
+medidas de tendencia central, mapas). Tenga en cuenta que muchas personas de
+negocio mirarán su informe por lo cual deberá facilitarles la comprensión del estado de
+situación.
+
+
+```{r}
+my_sf <- st_as_sf(info_radares, coords = c('long', 'lat'))
+
+#Plot it:
+map.cities(country = "Argentina", capitals = 2)
+ggplot(my_sf) + 
+  geom_sf(aes(color = disp_nombre))
+
+```
+
+
+```{r info_autopista}
+my_data <- read_excel("flujo_vehicular_wcm.xlsx")
+theme_set(theme_minimal()+theme(legend.position = "left"))
+
+mu <- ddply(filter(my_data,!is.na(cantidad)), "autopista_nombre", summarise,
+            grp.mean=mean(cantidad))
+mu <- mu %>%
+        mutate(Label = paste0("", prettyNum(round(grp.mean, 2), big.mark = ",")))
+
+Boxplot_autopista <- ggplot(data=subset(my_data, !is.na(cantidad)), aes(x=cantidad)) + 
+  geom_boxplot(fill="#2a9d8f",alpha=0.6) + 
+  ggtitle("Flujo Vehicular wcm (Autopista)") +
+  facet_grid(rows = vars(autopista_nombre)) +
+  theme(panel.grid.major = element_line(colour = "#d3d3d3"),
+        panel.grid.minor = element_blank())
+
+histogram_autopista <- ggplot(data=subset(my_data, !is.na(cantidad)), aes(x=cantidad)) + 
+  geom_histogram(fill="#2a9d8f", color = "#2a9d8f",alpha=0.6, bins = 22) + 
+  facet_grid(rows = vars(autopista_nombre)) +
+  geom_vline(data=mu, aes(xintercept=grp.mean),linetype="dashed")+
+  geom_text(data = mu, aes(x = grp.mean, y = 10, label = Label),
+            position=position_dodge(width=0.9),fontface = "bold", size = 3, hjust = -.05) +
+  ggtitle("") +
+  scale_x_continuous(name = "Cant. vehiculos") +
+  scale_y_continuous(name = "Autopistas") +
+  theme(panel.grid.major = element_line(colour = "#d3d3d3"),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(), panel.background = element_blank())
+
+
+plot_grid(Boxplot_autopista,histogram_autopista)
+```
+
+```{r sentido}
+
+my_data <- read_excel("flujo_vehicular_wcm.xlsx")
+theme_set(theme_minimal()+theme(legend.position = "left"))
+
+mu <- ddply(filter(my_data,!is.na(cantidad)), "seccion_sentido", summarise,
+            grp.mean=mean(cantidad))
+mu <- mu %>%
+        mutate(Label = paste0("", prettyNum(round(grp.mean, 2), big.mark = ",")))
+
+Boxplot_sentido <- ggplot(data=subset(my_data, !is.na(cantidad)), aes(x=cantidad)) + 
+  geom_boxplot(fill="#8a817c",alpha=0.6) + 
+  ggtitle("Flujo Vehicular wcm (seccion_sentido)") +
+  facet_grid(rows = vars(seccion_sentido)) +
+  theme(panel.grid.major = element_line(colour = "#d3d3d3"),
+        panel.grid.minor = element_blank())
+
+histogram_sentido <- ggplot(data=subset(my_data, !is.na(cantidad)), aes(x=cantidad)) + 
+  geom_histogram(fill="#8a817c", color = "#8a817c",alpha=0.6, bins = 22) + 
+  facet_grid(rows = vars(seccion_sentido)) +
+  geom_vline(data=mu, aes(xintercept=grp.mean),linetype="dashed")+
+  geom_text(data = mu, aes(x = grp.mean, y = 10, label = Label),
+            position=position_dodge(width=0.9),fontface = "bold", size = 3, hjust = -.05) +
+  ggtitle("") +
+  scale_x_continuous(name = "Cant. vehiculos") +
+  scale_y_continuous(name = "seccion_sentido") +
+  theme(panel.grid.major = element_line(colour = "#d3d3d3"),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(), panel.background = element_blank())
+
+
+plot_grid(Boxplot_sentido,histogram_sentido)
+```
+
+
+![an image caption Source: Mapa de los radares, con info promedio diaria de flujo vehicular](Tablero_00.png)
+
