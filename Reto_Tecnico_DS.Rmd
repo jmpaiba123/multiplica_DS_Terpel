@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r warning=FALSE, include=FALSE}
 suppressPackageStartupMessages(library(plyr))
 suppressPackageStartupMessages(library(dplyr))
 suppressPackageStartupMessages(library(cowplot))
@@ -21,7 +21,7 @@ suppressPackageStartupMessages(library('maps'))
 
 ## Lectura y limpieza de Datos
 
-Lectura de todos los archivos .csv de nuestro directorio, previamente se hacen algunos ajustes a los datos originales, como quitar las comillas en los datos de 2021, dejar en una sola colmna la informaicón de 2022, entre otros. Y teniendo en cuenta la información dispuesta en cada uno de los archivos:
+Lectura de todos los archivos .csv de nuestro directorio [link](https://data.buenosaires.gob.ar/dataset/flujo-vehicular-por-radares-ausa), previamente se hacen algunos ajustes a los datos originales, como quitar las comillas en los datos de 2021, dejar en una sola colmna la informaicón de 2022, entre otros. Y teniendo en cuenta la información dispuesta en cada uno de los archivos:
 
 * fecha	(date):	Fecha
 * hora (integer):	Hora del día.
@@ -44,7 +44,7 @@ for (i in 1:length(temp)) assign(temp[i], read.csv(temp[i]))
 
 
 
-```{r}
+```{r echo=TRUE}
 
 info_radares <- unique(rbind(as.matrix(flujo_vehicular_2019.csv %>% distinct(disp_nombre, lat, long)),
                              as.matrix(flujo_vehicular_2020.csv %>% distinct(disp_nombre, lat, long)),
@@ -95,19 +95,31 @@ df <- unique(rbind(flujo_vehicular_2019,
                    flujo_vehicular_2021,
                    flujo_vehicular_2022))
 
-
-
 #write.table(df, file = "flujo_vehicular.txt", sep = "\t",
 #            row.names = TRUE, col.names = NA)
 
 df[, 'seccion_sentido'] <- as.factor(df[, 'seccion_sentido'])
 df[, 'lat'] <- as.double(df[, 'lat'])
 df[, 'long'] <- as.double(df[, 'long'])
-
 df[, 'fecha'] <- as.Date((df[, 'fecha']), "%Y-%m-%d") 
 
-str(df)
+summary(df)
 ```
+
+
+Después de consolidados los datos en una sola tabla, las fechas son transformadas en un solo formtao único para todos los registros, y se generan dos nuevas bases:
+ 
+ * flujo_vehicular_wcm.xlsx: Consolidado semanal (semanas comenzando lunes)
+ * Flujo_vehicular_diario.xslx: Consolidado diario
+
+Los flujos vehiculares diarios se utilizan para algunas representaciones gráficas y/o mapas, los semanales se cargan a continuación para hacer algunos análisis adicionales y estimaciones.
+
+
+```{r}
+my_data <- read_excel("flujo_vehicular_wcm.xlsx")
+head(my_data, 5)
+```
+
 
 ## Ejercicio 1.
 
@@ -117,7 +129,7 @@ negocio mirarán su informe por lo cual deberá facilitarles la comprensión del
 situación.
 
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 my_sf <- st_as_sf(info_radares, coords = c('long', 'lat'))
 
 #Plot it:
@@ -128,8 +140,9 @@ ggplot(my_sf) +
 ```
 
 
-```{r info_autopista}
-my_data <- read_excel("flujo_vehicular_wcm.xlsx")
+Dado que no disponemos de muchas variables, algunas por las cuales podemos hacer apertura por categorías son, días de la semana, autopistas, y sección sentido, variables para las cuales harmos un primer acercamiento: 
+
+```{r info_autopista, echo=FALSE}
 theme_set(theme_minimal()+theme(legend.position = "left"))
 
 mu <- ddply(filter(my_data,!is.na(cantidad)), "autopista_nombre", summarise,
@@ -161,11 +174,52 @@ histogram_autopista <- ggplot(data=subset(my_data, !is.na(cantidad)), aes(x=cant
 plot_grid(Boxplot_autopista,histogram_autopista)
 ```
 
-```{r sentido}
+Se tienen en total cinco autopistas diferentes en la base de datos de flufo vehícular, sobre los cuales se puede concluir lo siguiente:
 
-my_data <- read_excel("flujo_vehicular_wcm.xlsx")
-theme_set(theme_minimal()+theme(legend.position = "left"))
+ * Las autopistas Lugones y Cantilo tiene mayor flujo vehicular, también son aquellas con mayor dispersión
+ * La autopista Campora tiene muy pocos datos de flujo vehícular, lo que permite excluirla del análisis
+ * Las autopistas 9 de Julio Sur y Dellepiane tienen en promedio menor flujo vehicular, comparado con Lugones y Cantilo, del mismo modo tienen mejor dispersión de los datos.
 
+
+```{r info_diaSem, echo=FALSE}
+my_data_2 <- read_excel("flujo_vehicular_diario.xlsx")
+mu <- ddply(filter(my_data_2,!is.na(cantidad)), "DiaSem", summarise,
+            grp.mean=mean(cantidad))
+mu <- mu %>%
+        mutate(Label = paste0("", prettyNum(round(grp.mean, 2), big.mark = ",")))
+
+Boxplot_DiaSem <- ggplot(data=subset(my_data_2, !is.na(cantidad)), aes(x=cantidad)) + 
+  geom_boxplot(fill="#E8D166",alpha=0.6) + 
+  ggtitle("Flujo Vehicular diario (DiaSem)") +
+  facet_grid(rows = vars(DiaSem)) +
+  theme(panel.grid.major = element_line(colour = "#d3d3d3"),
+        panel.grid.minor = element_blank())
+
+histogram_DiaSem <- ggplot(data=subset(my_data_2, !is.na(cantidad)), aes(x=cantidad)) + 
+  geom_histogram(fill="#E8D166", color = "#E8D166",alpha=0.6, bins = 22) + 
+  facet_grid(rows = vars(DiaSem)) +
+  geom_vline(data=mu, aes(xintercept=grp.mean),linetype="dashed")+
+  geom_text(data = mu, aes(x = grp.mean, y = 10, label = Label),
+            position=position_dodge(width=0.9),fontface = "bold", size = 3, hjust = -.05) +
+  ggtitle("") +
+  scale_x_continuous(name = "Cant. vehiculos") +
+  scale_y_continuous(name = "DiaSem") +
+  theme(panel.grid.major = element_line(colour = "#d3d3d3"),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(), panel.background = element_blank())
+
+
+plot_grid(Boxplot_DiaSem,histogram_DiaSem)
+```
+
+Analizando la información promedio por día de la semana, se observa
+
+ * Las medidas de dispersión de los datos del flujo vehícular para los días de la semana es bastante similar
+ * Dentro de los días hábiles se presenta un aumento hacia el día viernes
+ * En particular sábado y domingo presentan menos flujo vehícular en promedio
+ 
+
+```{r sentido, echo=FALSE}
 mu <- ddply(filter(my_data,!is.na(cantidad)), "seccion_sentido", summarise,
             grp.mean=mean(cantidad))
 mu <- mu %>%
@@ -195,6 +249,193 @@ histogram_sentido <- ggplot(data=subset(my_data, !is.na(cantidad)), aes(x=cantid
 plot_grid(Boxplot_sentido,histogram_sentido)
 ```
 
+En cuanto al sentido de las autopistas, se tiene que:
 
-![an image caption Source: Mapa de los radares, con info promedio diaria de flujo vehicular](Tablero_00.png)
+ * En promedio hay más flujo vehícular en el sentido A
+ * La cantidad de registros es similar en los sentidos A y B
+ * Se evidencian registros casi nulos en la avenida Campora, la cual no tiene sentido
+ 
+ 
+## Dashboard PBI 
+
+A continuación se presentan algunas imágenes tomadas del dashboard interactivo construido en la herramienta Power BI, donde se utilizaron mapas de ARCGis para tener una representación geoespacial de donde se encuentran los radares en la ciudad de Buenos Aires a lo largo de las autopistas analizadas anteriormente.
+
+![Mapa con informacíon promedio diaria de flujo vehicular para todos los radares](images/Tablero_00.png)
+
+Ya es posible observar la ubicación de las autopistas y de los radares y concluir lo siguiente:
+
+ * Aunque la avenida Lugones y Cantilo se encuentran en la misma zona al norte de la ciudad, los radares de Lugones toman información en sentido A, mientras que en Cantilo en sentido B
+ * En la autopista Dellepiane se encuentran 5 de 9 radares que toman información en los dos sentidos
+
+## Lugones y Cantilo
+
+![Mapa con informacíon promedio diaria de flujo vehicular Cantilo & Lugones](images/Tablero_Cantilo_lugano.png)
+
+En estas autopistas se tienen 8 de los 10 radares, donde se presenta mayor flujo vehícular; los radares Monroe, Esma, Udaondo, Dorrego y Ombues todos en sentido A sobre Lugones, son los radares donde se presenta mayor flujo vehicular en promedio por día.
+
+
+## Av9 julio sur
+
+![Mapa con informacíon promedio diaria de flujo vehicular Av9_julio_sur](images/Tablero_Av9_julio_sur.png)
+
+
+El radar con mayor flujo vehicular de esta zona es Samperio A sobre la avenida 9 de Julio al sur oriente de la Ciudad
+
+
+## Ejercicio 2.
+
+Desarrolle algún modelo que permita estimar el flujo vehicular para las próximas 
+semanas. Justifique la elección del mismo e indique bajo qué medidas evaluaría su 
+performance (no es necesario que tenga una alta precisión, lo importante es la 
+justificación de por qué lo eligió).
+
+```{r warning=FALSE, include=FALSE}
+suppressPackageStartupMessages(library(tseries))
+suppressPackageStartupMessages(library(forecast))
+suppressPackageStartupMessages(library(TSstudio))
+```
+
+
+## Flujo vehicular en radar Monroe & Análisis Exploratorio de Datos (EDA)
+
+Análisis de autocorrelación para examinar la dependencia en serie. Se utiliza para estimar qué valor en el pasado tiene una correlación con el valor actual. Proporciona la estimación p, d, q para los modelos ARIMA (Autoregresivo Integrado de Media Móvil).Análisis espectral para examinar el comportamiento cíclico. Se realiza para describir cómo la variación en una serie temporal puede ser explicada por componentes cíclicos. También se conoce como un análisis en dominio de la frecuencia. Usando esto, los componentes periódicos en un ambiente ruidoso se pueden separar.Estimación y descomposición de la tendencia. Se utiliza para el ajuste estacional. Busca construir, a partir de una serie temporal observada, una serie de componentes (que podrían usarse para reconstruir la serie original) donde cada una de ellas tiene una característica determinada.
+Antes de realizar cualquier EDA en los datos, debemos comprender los tres componentes de los datos de una serie temporal:     
+
+ * Tendencia: un aumento o disminución a largo plazo de los datos se denomina tendencia. No tiene porque ser necesariamente lineal. Es el patrón subyacente en los datos a lo largo del tiempo. 
+ * Estacional o Periódico: cuando una serie está influenciada por factores estacionales, es decir, un trimestre del año, mes o días de una semana, la estacionalidad existe en la serie. Siempre es de un período fijo y conocido. P.ej. – Un aumento repentino en las ventas durante el verano, etc.     
+ * Cíclico: cuando los datos muestran subidas y caídas que no son del período fijo, lo llamamos patrón cíclico. Por ejemplo – La duración de estas fluctuaciones suele ser de al menos 2 años.
+ 
+ 
+En R podemos averiguar estos componentes de la serie temporal con los siguientes comandos:
+
+```{r}
+my_data$V1=as.character(my_data$cantidad)
+my_data$V1=as.numeric(my_data$V1)
+data <- filter(my_data, disp_nombre == "RD169 Monroe" & WCM >= '2019-01-01' & WCM < '2022-02-27')
+data <- data[order(data$WCM),]
+
+# frecuencia semanal de nuestros datos
+RD169_Monroe <- ts(data$V1,start=c(2019,01,01),frequency = 52)
+ajuste <- auto.arima(y = RD169_Monroe)
+ts_decompose(RD169_Monroe)
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(RD169_Monroe,main="ACF serie flujos", lag.max=36)
+pacf(RD169_Monroe,main="PACF serie flujos", lag.max=36)
+```
+
+**ACF y PACF. Correlogramas**. Para saber cómo aplicar los modelos ARIMA tendremos que aprender a interpretar las gráficas de autocorrelación ACF y autocorrelación parcial PACF de una serie temporal. Estas gráficas nos ayundan a estimar los órdenes (recuerda…los 3 parámetros) (p,d,q) del modelo ARIMA.
+
+Como regla, la PACF define el orden de AR(p) y la ACF el orden de MA(q). Otra cosa a tener encuentra para su interpretación es que hay que fijarse bien en los valores absolutos de los primeros datos, obviando las inversiones abajo-arriba que solo son indicadores de algún coeficiente negativo del modelo, pero no afectan al órden (p,q).
+
+Si hay muchos valores de ACF altos(significativos), la serie es NO estacionaria, como en este caso, y habrá que agregar una diferenciación con d, y algo que podemos ver también en el test de Dickey-fuller, donde p-value > 0.05 y debemos aceptar la hipótesis nula de  NO estacionaridad.
+
+
+```{r}
+adf.test(RD169_Monroe)
+auto.arima(RD169_Monroe, trace=T)
+```
+
+```{r}
+#Se estiman posibles modelos
+mod1<-arima(RD169_Monroe,order=c(0,1,2))
+at_est <- residuals(mod1)
+windows()
+plot(at_est, main = "Residuos")
+
+
+Ljung_Box <- NULL
+x <- at_est
+for(i in 1:18){
+  Ljung_Box1 <- Box.test(x, lag = i, type="Ljung")$p.value
+  Ljung_Box <- rbind(Ljung_Box, cbind(i,Ljung_Box1))
+}
+colnames(Ljung_Box) <- c("Rezago","p-valor");
+cat(" \n \n")
+cat("Prueba Ljung_Box Hipótesis nula independencia \n \n")
+Ljung_Box
+plot(Ljung_Box, main="Prueba Ljung and Box \n Ho: Independencia",ylim=c(0,1))
+abline(h=0.05,col="red")
+
+### pruebas de hipótesis de normalidad
+#ad.test(at_est) #test de normalidad (nortest)
+shapiro.test(at_est) #test de normalidad (stats)
+
+win.graph(width=2.5,height=2.5,pointsize=4)
+qqnorm(at_est); qqline(at_est,col=2)
+
+win.graph(width=2.5,height=2.5,pointsize=8)
+acf(at_est, main="ACF Residuos")
+pacf(at_est)
+```
+
+
+Todos los valores de p para la prueba Ljung-Box Q están muy por encima de 0.05 , lo que nos indica que los datos no son dependientes.
+
+Los valores son normales ya que descansan en una línea y no están por todos lados.
+
+Como todos los gráficos apoyan el supuesto de que no hay un patrón en los residuales, podemos seguir adelante y calcular el pronóstico.
+
+
+```{r}
+predicciones <- forecast(ajuste,h=5)
+autoplot(predicciones)
+predicciones[["mean"]]
+```
+
+ARIMA es una metodología de análisis y estimación para las series de tiempo, la cual es comunmente usada en estadística y econometría. Allí se tienen en cuenta aspectos muy importantes dichas series como lo son los procesos autoregresivos, las medias móviles, la estacionalidad y tendencia. En este caso de análisis, solamente se dispone de la variable temporal de flujo vehicular, por lo cual la metodología ARIMA es de correcta aplicación.
+
+
+## Pronóstico del flujo vehicular promedio semanal en Buenos Aires
+
+En este caso haremos la estimación para teniendo en cuenta la totalidad de los radares
+
+![Serie de tiempo de la totalidad del flujo vehicular en la ciudad](images/serie_de_tiempo_total.png)
+
+```{r}
+library(dplyr)
+df_total <- my_data %>% 
+  dplyr::group_by(WCM) %>% 
+  dplyr::summarise(mean_cantidad = mean(cantidad))
+
+data <- filter(df_total, WCM >= '2019-01-01' &  WCM < '2022-02-27')
+data <- filter(data,!is.na(mean_cantidad))
+data <- data[order(df_total$WCM),]
+
+total <- ts(data$mean_cantidad,start=c(2019,01,01),frequency = 52)
+ajuste <- auto.arima(y = total)
+ts_decompose(total)
+
+predicciones <- forecast(ajuste,h=5)
+autoplot(predicciones)
+predicciones[["mean"]]
+```
+En este caso particular tenemos comportamiento similar al revisado para la serie anterior que nos describía el comportamiento del radar Monroe en el tiempo, otro posible ajuste en nuestra metodología es cambiar la ventana de tiempo, y excluir inicios del 2020, datos que se vieron afectados por la pandemia.
+
+```{r}
+data_2 <- filter(df_total, WCM >= '2020-05-01' & WCM < '2022-02-27')
+data_2 <- filter(data_2,!is.na(mean_cantidad))
+data_2 <- data_2[order(data_2$WCM),]
+
+total <- ts(data_2$mean_cantidad,start=c(2020,05,01),frequency = 52)
+ajuste <- auto.arima(y = total)
+
+predicciones <- forecast(ajuste,h=5)
+autoplot(predicciones)
+predicciones[["mean"]]
+```
+
+Vemos por ejemplo, como la exclusión de un periodo de tiempo en particular puede cambiar nuestra estimación, y ahora vemos una ligera tendencia en aumento para las 5 semanas siguientes.
+
+
+## Ejercicio 3.
+
+¿Cómo delegaría el monitoreo de este modelo en alguien del negocio? ¿Cuál cree que 
+sería la mejor estrategia?
+
+El pronóstico de la metodología viene acompañado de un intervalo de confianza, el cual se puede ajustar a la precisión que desee negocio o que se sugiera estadisticamente.
+Mensualmente se puede entregar un pronóstico de las semanas próximas con su respectivo intervalo de confianza, información que será util para realizar seguimiento de los datos reales. Dicha comparación permite generar alertas para la corecta toma de decisiones o acciones, e inclusive reentrenar la metodología.
+
 
